@@ -1,0 +1,6 @@
+streamlit>=1.37
+folium
+streamlit-folium
+requests
+psycopg2-binary
+bcrypt
