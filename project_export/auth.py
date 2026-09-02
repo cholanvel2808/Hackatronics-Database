@@ -85,17 +85,18 @@ def log_out():
 def login_gate():
     """Call at the very top of the app, before rendering anything else.
     Renders a login form and stops the script if nobody's logged in yet;
-    otherwise returns the logged-in user dict and shows a logout button."""
+    otherwise just returns the logged-in user dict — the "logged in as ...
+    / log out" chrome lives in test.py now (a settings-gear popover next
+    to the page title), not a sidebar, so this function no longer renders
+    anything for the already-logged-in case."""
     user = current_user()
     if user is not None:
-        with st.sidebar:
-            st.caption(f"Logged in as **{user['username']}** ({user['role']})")
-            if st.button("Log out"):
-                log_out()
-                st.rerun()
         return user
 
-    st.title("🚌 Sign in")
+    st.markdown(
+        "<h1 style='text-align: center; font-size: 2rem; margin-top: 14vh;'>Sign In</h1>",
+        unsafe_allow_html=True,
+    )
     if not _BCRYPT_AVAILABLE or not db.db_available():
         st.info(
             "Login is disabled — this needs both `bcrypt` installed and Postgres "
@@ -104,17 +105,19 @@ def login_gate():
         )
         st.stop()
 
-    with st.form("login_form"):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Log in", type="primary")
-    if submitted:
-        user = authenticate(username, password)
-        if user is None:
-            st.error("Invalid username or password.")
-        else:
-            log_in(user)
-            st.rerun()
+    _, col_mid, _ = st.columns([1, 1.2, 1])
+    with col_mid:
+        with st.form("login_form"):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            submitted = st.form_submit_button("Log in", type="primary")
+        if submitted:
+            user = authenticate(username, password)
+            if user is None:
+                st.error("Invalid username or password.")
+            else:
+                log_in(user)
+                st.rerun()
     st.stop()
 
 

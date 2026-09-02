@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import folium
 from folium import DivIcon
 from streamlit_folium import st_folium
@@ -21,11 +22,216 @@ DB_INTEGRATION_ENABLED = True
 
 st.set_page_config(layout="wide")
 
+# ---------- Global styling: Roboto everywhere, EasyBus brand mark ----------
+# Design-only change (no functional effect) — applies to every page,
+# including the login screen, since this runs before login_gate().
+st.markdown(
+    """
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
+
+    html, body, [class*="css"], .stApp {
+        font-family: 'Roboto', sans-serif !important;
+    }
+
+    /* Streamlit's "Press Enter to submit form" hint sits under the browser's
+       own password-manager icon and the eye (show/hide) icon on password
+       fields — shift it left so it clears both. */
+    [data-testid="InputInstructions"] {
+        transform: translateX(-70px);
+    }
+
+    .easybus-brand {
+        position: fixed;
+        top: 14px;
+        left: 24px;
+        font-family: 'Roboto', sans-serif;
+        font-weight: 700;
+        font-size: 2.3rem;  /* slightly bigger than the Sign In heading (2rem) */
+        z-index: 9999;
+    }
+
+    /* Tab bar (Build Routes / View Routes / Dispatch / Drivers): centered
+       instead of stuck flush to the left edge of the wide page. */
+    div[data-baseweb="tab-list"] {
+        justify-content: center !important;
+    }
+
+    /* Tab bar (Build Routes / View Routes / Dispatch / Drivers): thin white
+       border per tab, both border and text growing slightly on hover. */
+    button[data-baseweb="tab"], [role="tab"] {
+        border: 1px solid white !important;
+        border-radius: 6px;
+        padding: 6px 14px !important;
+        font-size: 1.05rem !important;
+        transition: font-size 0.15s ease, border-width 0.15s ease, padding 0.15s ease;
+    }
+    button[data-baseweb="tab"]:hover, [role="tab"]:hover {
+        border-width: 2px !important;
+        font-size: 1.15rem !important;
+        padding: 7px 16px !important;
+    }
+
+    /* Settings gear: placed top-right via a real right-aligned column (see
+       below) rather than CSS position:fixed — that broke last time,
+       most likely because some ancestor of it has its own CSS `transform`,
+       which silently changes what `fixed` positions relative to. Sizing/
+       border here don't have that problem, so they're still done in CSS. */
+    .st-key-settings_gear_container button {
+        font-size: 2rem !important;
+        line-height: 1 !important;
+        padding: 0.4rem 0.9rem !important;
+        border: 1px solid white !important;
+        border-radius: 8px !important;
+    }
+
+    /* Build Routes map: white rounded border, with a bit of breathing room
+       so it doesn't crowd the caption underneath it. The iframe defaults to
+       stretching to its container's full width regardless of the width=800
+       passed to st_folium (the map itself still only renders at 800px), so
+       without an explicit width here the border wraps a bunch of empty
+       space to the right of the actual map — pin it to match. */
+    .st-key-builder_map_frame iframe {
+        border: 3px solid white !important;
+        border-radius: 16px !important;
+        margin-bottom: 8px;
+        width: 800px !important;
+        max-width: 100%;
+    }
+
+    /* Undo last / Clear all: thin border, grows (border + text) on hover. */
+    .st-key-undo_last_container button, .st-key-clear_all_container button {
+        border: 1px solid white !important;
+        transition: font-size 0.15s ease, border-width 0.15s ease, padding 0.15s ease;
+    }
+    .st-key-undo_last_container button:hover, .st-key-clear_all_container button:hover {
+        border-width: 2px !important;
+        font-size: 1.1rem !important;
+        padding: 0.5rem 1rem !important;
+    }
+
+    /* Build Routes' right-hand panel (stops list, route name/color, bus
+       assignment, save button): bump the font size for everything in it. */
+    .st-key-build_side_panel, .st-key-build_side_panel * {
+        font-size: 1.15rem !important;
+    }
+
+    /* View Routes: bigger font everywhere in the tab. */
+    .st-key-view_tab_panel, .st-key-view_tab_panel * {
+        font-size: 1.15rem !important;
+    }
+
+    /* Dispatch: bigger font for everything EXCEPT inside the route/driver
+       cards (those get their own treatment below) — the more specific
+       card rule further down wins for anything inside a card. */
+    .st-key-dispatch_panel, .st-key-dispatch_panel * {
+        font-size: 1.15rem !important;
+    }
+
+    /* Drivers: bigger font everywhere, including inside the (now compact)
+       driver cards. */
+    .st-key-drivers_tab_panel, .st-key-drivers_tab_panel * {
+        font-size: 1.15rem !important;
+    }
+
+    /* Dispatch's route cards and driver-capacity cards, and the Drivers
+       tab's driver cards: thin white border, growing AND turning red on
+       hover — same "grows on hover" idea as the top tab bar, plus a red
+       highlight. Font size here is reset back down from the Dispatch
+       tab-wide boost above (see note above), since these cards are meant
+       to stay compact. */
+    [class*="st-key-dispatch_route_card_"],
+    [class*="st-key-dispatch_driver_card_"],
+    [class*="st-key-drivers_tab_card_"] {
+        border: 1px solid white !important;
+        transition: border-color 0.15s ease, border-width 0.15s ease;
+    }
+    [class*="st-key-dispatch_route_card_"] *,
+    [class*="st-key-dispatch_driver_card_"] * {
+        font-size: 1rem !important;
+    }
+    [class*="st-key-dispatch_route_card_"]:hover,
+    [class*="st-key-dispatch_driver_card_"]:hover,
+    [class*="st-key-drivers_tab_card_"]:hover {
+        border-color: #ff4b4b !important;
+        border-width: 3px !important;
+    }
+    </style>
+    <div class="easybus-brand">EasyBus</div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# EasyBus is `position: fixed`, so on its own it never moves at all when the
+# page scrolls. This nudges it up at 85% of the real scroll speed instead —
+# a subtle parallax lag rather than either "perfectly static" or "scrolls
+# exactly like normal content". Streamlit's markdown/HTML sanitizer strips
+# <script> tags, so this has to go through st.components.v1.html (a real
+# iframe) and reach into window.parent.document — same-origin, so it's
+# allowed, but this is the one change in this pass that's genuinely hard to
+# verify without a browser: if a future Streamlit version renders the page's
+# scroll container under a different selector, the try/except just makes
+# this silently do nothing rather than break anything else.
+components.html(
+    """
+    <script>
+    (function() {
+        function init() {
+            try {
+                var doc = window.parent.document;
+                var brand = doc.querySelector('.easybus-brand');
+                if (!brand) { setTimeout(init, 300); return; }
+                if (brand.dataset.parallaxAttached) { return; }
+                brand.dataset.parallaxAttached = "1";
+
+                var scrollEl = doc.querySelector('section[data-testid="stMain"]')
+                    || doc.querySelector('[data-testid="stAppViewContainer"]')
+                    || doc.querySelector('section.main')
+                    || doc.scrollingElement
+                    || doc.documentElement;
+
+                function onScroll() {
+                    var top = (scrollEl && scrollEl.scrollTop) || window.parent.scrollY || 0;
+                    brand.style.transform = 'translateY(' + (-top * 0.85) + 'px)';
+                }
+                if (scrollEl) { scrollEl.addEventListener('scroll', onScroll, {passive: true}); }
+                window.parent.addEventListener('scroll', onScroll, {passive: true});
+            } catch (e) {
+                /* Different-origin or unexpected DOM shape — EasyBus just
+                   stays perfectly fixed as before; nothing else breaks. */
+            }
+        }
+        init();
+    })();
+    </script>
+    """,
+    height=0,
+)
+
 user = None
 if DB_INTEGRATION_ENABLED:
     user = auth.login_gate()  # renders a login form and st.stop()s until signed in
 
-st.title("Chennai Bus Network Builder")
+if DB_INTEGRATION_ENABLED and user is not None:
+    # Settings-gear popover — replaces the old sidebar for "logged in as /
+    # log out". Placed top-right with a real right-aligned column (proven
+    # to work elsewhere in this app) rather than CSS position:fixed, which
+    # didn't actually land in the corner last time. The keyed container is
+    # just for sizing/border (see .st-key-settings_gear_container CSS above).
+    _, col_gear = st.columns([25, 1])
+    with col_gear:
+        with st.container(key="settings_gear_container"):
+            with st.popover("⚙️"):
+                st.write(f"Logged in as **{user['username']}**")
+                st.caption(f"Role: {user['role']}")
+                if st.button("Log out"):
+                    auth.log_out()
+                    st.rerun()
+
+st.markdown(
+    "<h1 style='text-align: center;'>Chennai Bus Network Builder</h1>",
+    unsafe_allow_html=True,
+)
 
 if DB_INTEGRATION_ENABLED and "db_extras_ensured" not in st.session_state:
     db.ensure_extras()
@@ -307,8 +513,8 @@ def route_overlap_pct(stops_a, stops_b):
 
 def format_overlap_line(name, pct):
     if pct > 0:
-        return f"🔁 **{round(pct)}%** overlap with **{name}**"
-    return f"⚪ No overlap with **{name}**"
+        return f"**{round(pct)}%** overlap with **{name}**"
+    return f"No overlap with **{name}**"
 
 
 # ---------- Tabs ----------
@@ -322,37 +528,51 @@ _is_driver = DB_INTEGRATION_ENABLED and user is not None and user["role"] == "DR
 _is_dispatcher = DB_INTEGRATION_ENABLED and user is not None and user["role"] == "DISPATCHER"
 
 if _is_driver:
-    (driver_tab,) = st.tabs(["👨‍✈️ My Schedule"])
+    (driver_tab,) = st.tabs(["My Schedule"])
     build_tab = view_tab = dispatch_tab = drivers_tab = None
 else:
     driver_tab = None
     if _is_dispatcher:
         build_tab, view_tab, dispatch_tab, drivers_tab = st.tabs(
-            ["🛠️ Build Routes", "🗺️ View Routes", "🎛️ Dispatch", "👥 Drivers"]
+            ["Build Routes", "View Routes", "Dispatch", "Drivers"]
         )
     else:
         # DB integration off: no login, no roles — same two tabs as always.
-        build_tab, view_tab = st.tabs(["🛠️ Build Routes", "🗺️ View Routes"])
+        build_tab, view_tab = st.tabs(["Build Routes", "View Routes"])
         dispatch_tab = drivers_tab = None
 
 # ===================== BUILD TAB (dispatcher, or DB integration off) =====================
 def render_build_tab():
-    st.subheader("Add stops")
-    st.caption(
-        "Click the map to add points in order: first click = start, last click = end, "
-        "everything in between = mandatory stops."
-    )
+    # NOTE (flagged, not silently done): this text describes a right-click
+    # ending a route, but the actual click handling below only ever listens
+    # for left clicks (folium/leaflet's plain "click" event) — right-click
+    # opens the browser's own context menu and isn't captured as a stop.
+    # The design-only instruction was to change this text, not the click
+    # logic, so the two are now out of sync — say if you'd also like the
+    # click handling changed to match (a real, separate change, not styling).
+    _, col_header = st.columns([1, 30])
+    with col_header:
+        st.subheader("Add stops")
+        st.caption("Left Click - Start")
+        st.caption("Continuous Left Click - Adding Stops")
+        st.caption("Right Click - Final Stop")
 
-    optimize = st.checkbox(
-        "Optimize stop order for shortest total distance (TSP)",
-        value=False,
-        help="Off = visit stops in the order you clicked them. On = keep start/end fixed but reorder middle stops for minimum total distance.",
-        key="optimize_toggle",
-    )
+        optimize = st.checkbox(
+            "Optimize stop order for shortest total distance (TSP)",
+            value=False,
+            help="Off = visit stops in the order you clicked them. On = keep start/end fixed but reorder middle stops for minimum total distance.",
+            key="optimize_toggle",
+        )
 
-    col_map, col_panel = st.columns([3, 1])
+    # A small left spacer nudges the map right; col_map's share is also
+    # reduced from before — the map itself is a FIXED 800px wide (see
+    # st_folium width= below), so on a wide screen col_map's old 75% share
+    # was much wider than the map actually rendered, leaving a big blank
+    # gap before col_panel started. A narrower share brings col_panel's
+    # start closer to where the map visually ends.
+    _, col_map, col_panel = st.columns([0.12, 1.6, 1], gap="small")
 
-    with col_map:
+    with col_map, st.container(key="builder_map_frame"):
         v = st.session_state.builder_view
         builder_map = folium.Map(location=v["center"], zoom_start=v["zoom"], tiles="OpenStreetMap")
 
@@ -410,7 +630,7 @@ def render_build_tab():
             st.session_state.last_processed_click = clicked
             st.rerun()
 
-    with col_panel:
+    with col_panel, st.container(key="build_side_panel"):
         st.write("**Stops added (click order):**")
         if not st.session_state.builder_points:
             st.caption("None yet — click the map.")
@@ -438,12 +658,12 @@ def render_build_tab():
             else:
                 st.caption("⚪ No overlap with any saved route.")
 
-        c1, c2 = st.columns(2)
-        with c1:
+        c1, c2 = st.columns(2, gap="small")
+        with c1, st.container(key="undo_last_container"):
             if st.button("Undo last") and st.session_state.builder_points:
                 st.session_state.builder_points.pop()
                 st.rerun()
-        with c2:
+        with c2, st.container(key="clear_all_container"):
             if st.button("Clear all"):
                 st.session_state.builder_points = []
                 st.session_state.last_processed_click = None
@@ -464,10 +684,10 @@ def render_build_tab():
                 st.warning("No buses in the fleet yet — a bus is required to save a route.")
             else:
                 bus_opts = {f"{b['bus_number']} ({b['model']}, {b['status']})": b["bus_id"] for b in all_buses}
-                selected_bus_label = st.selectbox("Assign bus to this route", list(bus_opts.keys()))
+                selected_bus_label = st.selectbox("Bus Assignment", list(bus_opts.keys()))
                 selected_bus_id = bus_opts[selected_bus_label]
 
-        if st.button("💾 Save Route", type="primary"):
+        if st.button("Save Route", type="primary"):
             if len(st.session_state.builder_points) < 2:
                 st.error("Add at least a start and an end point.")
             elif route_name in st.session_state.routes:
@@ -516,21 +736,37 @@ def render_build_tab():
 
     if st.session_state.routes:
         st.divider()
-        st.write("**Saved routes:**")
-        for name, r in st.session_state.routes.items():
-            c1, c2 = st.columns([5, 1])
-            with c1:
-                st.write(f"🔵 **{name}** — {r['distance_km']} km, ~{r['duration_min']} min "
-                         f"({'optimized order' if r.get('optimized') else 'your order'}), {len(r['stops'])} stops")
-                with st.expander("Show stops (visiting order)"):
-                    for i, (lat, lon) in enumerate(r["stops"]):
-                        st.write(f"{i+1}. {stop_label(i, len(r['stops']))} — `{lat:.4f}, {lon:.4f}`{stop_display_suffix(r, i, lat, lon)}")
-            with c2:
-                if st.button("Delete", key=f"del_{name}"):
-                    if DB_INTEGRATION_ENABLED:
-                        db.delete_route_from_db(r.get("db_route_id"))
-                    del st.session_state.routes[name]
-                    st.rerun()
+        # Narrower + centered instead of full page width — also brings the
+        # Delete button (c2 below) closer to the route text, since the c1/c2
+        # split now happens within this narrower block instead of across
+        # the whole tab width.
+        _, col_saved, _ = st.columns([1, 6, 1])
+        with col_saved:
+            st.write("**Saved routes:**")
+            for name, r in st.session_state.routes.items():
+                c1, c2 = st.columns([4, 1], gap="small")
+                with c1:
+                    st.markdown(
+                        '<span style="display:inline-block; width:11px; height:11px; '
+                        'border-radius:50%; background:white; margin-right:8px; '
+                        'vertical-align:middle;"></span>'
+                        f"**{name}** — {r['distance_km']} km, ~{r['duration_min']} min "
+                        f"({'optimized order' if r.get('optimized') else 'your order'}), {len(r['stops'])} stops",
+                        unsafe_allow_html=True,
+                    )
+                    # Fixed, content-sized width instead of the default
+                    # "stretch" (st.expander's width only accepts an int or
+                    # "stretch", no shrink-to-fit option) — sized to
+                    # comfortably fit this label.
+                    with st.expander("Show stops (visiting order)", width=300):
+                        for i, (lat, lon) in enumerate(r["stops"]):
+                            st.write(f"{i+1}. {stop_label(i, len(r['stops']))} — `{lat:.4f}, {lon:.4f}`{stop_display_suffix(r, i, lat, lon)}")
+                with c2:
+                    if st.button("Delete", key=f"del_{name}"):
+                        if DB_INTEGRATION_ENABLED:
+                            db.delete_route_from_db(r.get("db_route_id"))
+                        del st.session_state.routes[name]
+                        st.rerun()
 
 
 # ===================== VIEW TAB (dispatcher, or DB integration off) =====================
@@ -553,7 +789,7 @@ def render_route_detail_block(name, r):
     whether it's being shown because it's the only one selected, or as
     part of "show all matching routes"."""
     st.write(f"**{name}** — {r['distance_km']} km, ~{r['duration_min']} min, {len(r['stops'])} stops")
-    with st.expander(f"Stops on {name} (visiting order)"):
+    with st.expander(f"Stops on {name} (visiting order)", width=340):
         for i, (lat, lon) in enumerate(r["stops"]):
             st.write(f"{i+1}. {stop_label(i, len(r['stops']))} — `{lat:.4f}, {lon:.4f}`{stop_display_suffix(r, i, lat, lon)}")
 
@@ -563,14 +799,14 @@ def render_route_detail_block(name, r):
         pct = route_overlap_pct(r["stops"], other_r["stops"])
         if pct > 0:
             overlap_lines.append(format_overlap_line(other_name, pct))
-    with st.expander(f"🔁 Overlap of {name} with other routes"):
+    with st.expander(f"Overlap of {name} with other routes", width=340):
         if not others:
             st.caption("No other saved routes to compare against yet.")
         elif overlap_lines:
             for line in overlap_lines:
                 st.write(line)
         else:
-            st.caption("⚪ No overlap with any other route.")
+            st.caption("No overlap with any other route.")
 
     # Edit the bus assigned to this route (bus assignment only — driver
     # assignment happens through a proper shift in the Dispatch tab, not
@@ -578,7 +814,7 @@ def render_route_detail_block(name, r):
     # to Postgres (db_route_id set).
     db_route_id = r.get("db_route_id")
     if DB_INTEGRATION_ENABLED and db_route_id is not None:
-        with st.expander(f"🚌 Bus assignment for {name}"):
+        with st.expander(f"Bus assignment for {name}", width=340):
             all_buses = db.list_all_buses()
             current_buses = [b for b in all_buses if b["route_id"] == db_route_id]
             current_bus = current_buses[0] if current_buses else None
@@ -650,7 +886,7 @@ def render_view_tab():
 
     if not matching:
         st.error(
-            f"🚫 No routes found — no saved route passes through both "
+            f"No routes found — no saved route passes through both "
             f"'{from_place}' and '{to_place}'."
         )
         return
@@ -664,7 +900,7 @@ def render_view_tab():
 
     if selected:
         st.caption(f"Showing **{selected}** — click it again on the map, or use the button below, to see all {len(matching)} matching routes.")
-        if st.button("⬅️ Show all matching routes"):
+        if st.button("Show all matching routes"):
             st.session_state.view_selected_route = None
             st.rerun()
     else:
@@ -729,10 +965,18 @@ def render_view_tab():
                 st.session_state.view_selected_route = clicked_route
             st.rerun()
 
-    st.write("**Route details:**")
-    detail_names = [selected] if selected else matching
-    for name in detail_names:
-        render_route_detail_block(name, st.session_state.routes[name])
+    _, col_details, _ = st.columns([0.5, 9, 0.5])
+    with col_details:
+        st.write("**Route details:**")
+        detail_names = [selected] if selected else matching
+        # Detail boxes are compact now, so two routes share a row instead of
+        # each one taking the full width by itself.
+        for row_start in range(0, len(detail_names), 2):
+            row_names = detail_names[row_start:row_start + 2]
+            row_cols = st.columns(2)
+            for col, name in zip(row_cols, row_names):
+                with col:
+                    render_route_detail_block(name, st.session_state.routes[name])
 
 
 # Both functions are defined by now — actually render into their tabs.
@@ -740,7 +984,7 @@ if build_tab is not None:
     with build_tab:
         render_build_tab()
 if view_tab is not None:
-    with view_tab:
+    with view_tab, st.container(key="view_tab_panel"):
         render_view_tab()
 
 # ===================== DISPATCH TAB (dispatcher only) =====================
@@ -751,7 +995,7 @@ if view_tab is not None:
 # not driverweb.py's original SCHEDULED_OVERTIME).
 if dispatch_tab is not None:
 
-    @st.dialog("🚀 Assign Driver & Vehicle to Route")
+    @st.dialog("Assign Driver & Vehicle to Route")
     def open_dispatch_modal(route_id, route_name, route_len_km, route_duration_min, target_date):
         st.caption(f"Configuring shift for **{route_name}** ({route_len_km} km, ~{route_duration_min} min one-way)")
 
@@ -798,8 +1042,8 @@ if dispatch_tab is not None:
             cycles = 0
             cycle_note = ""
         st.info(
-            f"⏱️ Shift duration: `{calculated_hours}` hours\n\n"
-            f"🔁 Estimated complete round trips this shift: **{cycles}**{cycle_note}"
+            f"Shift duration: `{calculated_hours}` hours\n\n"
+            f"Estimated complete round trips this shift: **{cycles}**{cycle_note}"
         )
 
         availability = db.list_driver_availability(target_date, calculated_hours, new_start=dt_start, new_end=dt_end)
@@ -817,7 +1061,7 @@ if dispatch_tab is not None:
             return
         driver_opts = {}
         for a in selectable:
-            status_flag = "✅ Within capacity" if a["capacity_ok"] else "🚨 Over daily hours"
+            status_flag = "Within capacity" if a["capacity_ok"] else "Over daily hours"
             label = f"{a['full_name']} [{status_flag} | Worked: {a['worked_today']}/{a['max_daily_hours']}h]"
             driver_opts[label] = a
         selected_driver_label = st.selectbox("Assign driver", list(driver_opts.keys()), key="dispatch_driver_select")
@@ -847,8 +1091,8 @@ if dispatch_tab is not None:
             else:
                 st.error("Could not save the duty — check the database connection.")
 
-    with dispatch_tab:
-        st.subheader("🎛️ Dispatch")
+    with dispatch_tab, st.container(key="dispatch_panel"):
+        st.subheader("Dispatch")
         st.caption("Assign a driver and bus to a route built in the Build Routes tab.")
 
         dispatch_date = st.date_input("Target dispatching date", value=date.today(), key="dispatch_date")
@@ -857,34 +1101,34 @@ if dispatch_tab is not None:
         col_matrix_left, col_matrix_right = st.columns([1.6, 1.0])
 
         with col_matrix_left:
-            st.subheader("📍 Saved Routes (click to dispatch)")
+            st.subheader("Saved Routes (click to dispatch)")
             routes = db.list_dispatchable_routes()
             if not routes:
                 st.info("No routes saved yet — build one in the Build Routes tab first.")
             for r in routes:
-                with st.container(border=True):
+                with st.container(border=True, key=f"dispatch_route_card_{r['route_id']}"):
                     c1, c2, c3 = st.columns([2, 1, 1])
                     with c1:
-                        st.markdown(f"#### 🚌 {r['route_name']} (`{r['route_code']}`)")
+                        st.markdown(f"#### {r['route_name']} (`{r['route_code']}`)")
                         st.caption(f"{r['length_km']} km • ~{r['duration_min']} min one-way • {r['stop_count']} stops")
                     with c2:
                         st.info("Saved")
                     with c3:
-                        if st.button("🚀 Assign Shift", key=f"dispatch_btn_{r['route_id']}", use_container_width=True):
+                        if st.button("Assign Shift", key=f"dispatch_btn_{r['route_id']}", use_container_width=True):
                             open_dispatch_modal(r["route_id"], r["route_name"], r["length_km"], r["duration_min"], dispatch_date)
 
         with col_matrix_right:
-            st.subheader("📊 Driver Capacity")
+            st.subheader("Driver Capacity")
             availability = db.list_driver_availability(dispatch_date, shift_hours=0.0)
             for a in availability:
-                with st.container(border=True):
-                    badge = "✅ Within capacity" if a["capacity_ok"] else "🚨 Over daily hours"
+                with st.container(border=True, key=f"dispatch_driver_card_{a['driver_id']}"):
+                    badge = "Within capacity" if a["capacity_ok"] else "Over daily hours"
                     st.markdown(f"**{a['full_name']}** — {badge}")
                     st.caption(f"Worked today: {a['worked_today']} / {a['max_daily_hours']} hours")
                     st.progress(min(a["worked_today"] / a["max_daily_hours"], 1.0) if a["max_daily_hours"] else 0.0)
 
         st.divider()
-        st.subheader("📋 Master Duty Schedule")
+        st.subheader("Master Duty Schedule")
         duties = db.list_all_duties()
         if duties:
             st.dataframe(
@@ -895,7 +1139,7 @@ if dispatch_tab is not None:
                         "Bus": d["bus_number"],
                         "Driver": d["driver_name"],
                         "Hours": d["working_hours"],
-                        "Type": "🔗 LINKED" if d["is_linked"] else "🔓 UNLINKED",
+                        "Type": "LINKED" if d["is_linked"] else "UNLINKED",
                         "Status": d["status"],
                         "Start": d["start_time"].strftime("%Y-%m-%d %H:%M") if d["start_time"] else "N/A",
                         "End": d["end_time"].strftime("%Y-%m-%d %H:%M") if d["end_time"] else "N/A",
@@ -907,57 +1151,62 @@ if dispatch_tab is not None:
         else:
             st.caption("No duties scheduled yet.")
 
+
+def render_driver_card(d):
+    """One driver's compact card body — used inside a bordered container,
+    two per row, in the Drivers tab."""
+    st.markdown(f"**{d['full_name']}**")
+    st.caption(f"{d['license_number']} • {d['phone']}")
+    st.caption(
+        f"{d['shift_status']} • {d['shift_start_time']}–{d['shift_end_time']} • "
+        f"{d['min_rest_hours']}h rest, {d['max_daily_hours']}h/day"
+    )
+    if d["bus_number"]:
+        st.write(f"{d['bus_number']} → {d['route_name'] or '(no route)'}")
+        if st.button("Remove shift", key=f"remove_shift_{d['driver_id']}"):
+            if db.remove_driver_shift(d["driver_id"]):
+                st.success(f"Removed {d['full_name']}'s shift.")
+                st.rerun()
+            else:
+                st.error("Could not remove the shift — check the database connection.")
+    else:
+        st.write("— unassigned —")
+
+    schedule = db.get_driver_schedule(d["driver_id"])
+    total_hours = sum(float(s["working_hours"]) for s in schedule if s["working_hours"] is not None)
+    with st.expander(f"Dispatch history — {len(schedule)} entries, {total_hours:.1f}h total", width=380):
+        if not schedule:
+            st.caption("No dispatch history yet.")
+        else:
+            for s in schedule:
+                st.write(
+                    f"- **{s['route_name']}** (`{s['route_code']}`) on `{s['bus_number']}` — "
+                    f"{s['start_time'].strftime('%Y-%m-%d %H:%M')} to "
+                    f"{s['end_time'].strftime('%Y-%m-%d %H:%M')} "
+                    f"({s['working_hours']}h) — {s['status']}"
+                )
+
 # ===================== DRIVERS TAB (dispatcher only) =====================
 # A full roster: every driver, their current bus/route assignment, their
 # standing shift and rest/hours limits, and their dispatch history with a
 # running total of hours worked — everything in one place instead of
 # hunting across Dispatch's per-shift view.
 if drivers_tab is not None:
-    with drivers_tab:
-        st.subheader("👥 Drivers")
+    with drivers_tab, st.container(key="drivers_tab_panel"):
+        st.subheader("Drivers")
         st.caption("Every driver, their current assignment, and their schedule.")
 
         overview = db.list_drivers_overview()
         if not overview:
             st.info("No drivers found.")
-        for d in overview:
-            with st.container(border=True):
-                st.markdown(f"### {d['full_name']}")
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    st.caption("License / phone")
-                    st.write(f"{d['license_number']} • {d['phone']}")
-                with c2:
-                    st.caption("Standing shift")
-                    st.write(f"{d['shift_status']} • {d['shift_start_time']}–{d['shift_end_time']}")
-                    st.caption("Rest / max daily")
-                    st.write(f"{d['min_rest_hours']}h rest, {d['max_daily_hours']}h/day")
-                with c3:
-                    st.caption("Currently assigned to")
-                    if d["bus_number"]:
-                        st.write(f"🚌 {d['bus_number']} → {d['route_name'] or '(no route)'}")
-                        if st.button("🗑️ Remove shift", key=f"remove_shift_{d['driver_id']}"):
-                            if db.remove_driver_shift(d["driver_id"]):
-                                st.success(f"Removed {d['full_name']}'s shift.")
-                                st.rerun()
-                            else:
-                                st.error("Could not remove the shift — check the database connection.")
-                    else:
-                        st.write("— unassigned —")
-
-                schedule = db.get_driver_schedule(d["driver_id"])
-                total_hours = sum(float(s["working_hours"]) for s in schedule if s["working_hours"] is not None)
-                with st.expander(f"Dispatch history — {len(schedule)} entries, {total_hours:.1f}h total"):
-                    if not schedule:
-                        st.caption("No dispatch history yet.")
-                    else:
-                        for s in schedule:
-                            st.write(
-                                f"- **{s['route_name']}** (`{s['route_code']}`) on `{s['bus_number']}` — "
-                                f"{s['start_time'].strftime('%Y-%m-%d %H:%M')} to "
-                                f"{s['end_time'].strftime('%Y-%m-%d %H:%M')} "
-                                f"({s['working_hours']}h) — {s['status']}"
-                            )
+        # Cards are compact now, so two drivers share a row instead of each
+        # one taking the full tab width by itself.
+        for row_start in range(0, len(overview), 2):
+            row = overview[row_start:row_start + 2]
+            row_cols = st.columns(2)
+            for col, d in zip(row_cols, row):
+                with col, st.container(border=True, key=f"drivers_tab_card_{d['driver_id']}"):
+                    render_driver_card(d)
 
 # ===================== DRIVER SCHEDULE TAB (driver only) =====================
 # Ported from driverweb.py's "Driver Schedule Portal" — the real version
@@ -965,8 +1214,8 @@ if drivers_tab is not None:
 # could view anyone's schedule (that was only ever a stand-in for auth).
 if driver_tab is not None:
     with driver_tab:
-        st.subheader("👨‍✈️ My Schedule")
-        st.caption(f"🔒 Signed in as **{user['username']}**")
+        st.subheader("My Schedule")
+        st.caption(f"Signed in as **{user['username']}**")
         st.divider()
 
         standing = db.get_driver_standing_assignment(user["driver_id"])
@@ -978,7 +1227,7 @@ if driver_tab is not None:
             for cr in current_routes:
                 with st.container(border=True):
                     route_bit = f" (`{cr['route_code']}`)" if cr["route_code"] else ""
-                    st.markdown(f"### 🚌 {cr['route_name'] or '(no route yet)'}{route_bit}")
+                    st.markdown(f"### {cr['route_name'] or '(no route yet)'}{route_bit}")
                     st.markdown(f"**Vehicle:** `{cr['bus_number']}`")
             if standing is not None:
                 st.markdown(
@@ -1024,14 +1273,14 @@ if driver_tab is not None:
                 with st.container(border=True):
                     col1, col2, col3 = st.columns([2, 1.5, 1])
                     with col1:
-                        st.markdown(f"### 🚌 {d['route_name']} (`{d['route_code']}`)")
+                        st.markdown(f"### {d['route_name']} (`{d['route_code']}`)")
                         st.markdown(f"**Assigned vehicle:** `{d['bus_number']}`")
                     with col2:
-                        st.markdown("🕒 **Shift timings**")
+                        st.markdown("**Shift timings**")
                         st.markdown(f"**Start:** `{d['start_time'].strftime('%Y-%m-%d %H:%M')}`")
                         st.markdown(f"**End:** `{d['end_time'].strftime('%Y-%m-%d %H:%M')}`")
                         st.markdown(f"**Working hours:** `{d['working_hours']}`")
                     with col3:
-                        duty_label = "🔗 LINKED (same vehicle)" if d["is_linked"] else "🔓 UNLINKED (vehicle swap)"
+                        duty_label = "LINKED (same vehicle)" if d["is_linked"] else "UNLINKED (vehicle swap)"
                         st.info(f"**Duty type:**\n{duty_label}")
                         st.success(f"**Status:** {d['status']}")
